@@ -4,8 +4,8 @@ import os
 import glob
 import cv2
 import torch.utils.data as data
-
-
+import torch
+import torchvision.transforms
 rng = np.random.RandomState(2020)
 
 def np_load_frame(filename, resize_height, resize_width):
@@ -38,10 +38,11 @@ class DataLoader(data.Dataset):
         self._num_pred = num_pred
         self.setup()
         self.samples = self.get_all_samples()
-        
+
         
     def setup(self):
         videos = glob.glob(os.path.join(self.dir, '*'))
+
         for video in sorted(videos):
             video_name = video.split('/')[-1]
             self.videos[video_name] = {}
@@ -49,7 +50,7 @@ class DataLoader(data.Dataset):
             self.videos[video_name]['frame'] = glob.glob(os.path.join(video, '*.jpg'))
             self.videos[video_name]['frame'].sort()
             self.videos[video_name]['length'] = len(self.videos[video_name]['frame'])
-            
+ 
             
     def get_all_samples(self):
         frames = []
@@ -58,21 +59,24 @@ class DataLoader(data.Dataset):
             video_name = video.split('/')[-1]
             for i in range(len(self.videos[video_name]['frame'])-self._time_step):
                 frames.append(self.videos[video_name]['frame'][i])
-                           
+        #print(frames)
+        #print(np.shape(frames))
         return frames               
             
         
     def __getitem__(self, index):
+        direction_label_list = np.load('/home/dongin/MNAD/data/frame_direction_'+'atm1_training'+'.npy')##
+        direction_label_list = torch.from_numpy(direction_label_list).long()##
         video_name = self.samples[index].split('/')[-2]
         frame_name = int(self.samples[index].split('/')[-1].split('.')[-2])
-        
         batch = []
         for i in range(self._time_step+self._num_pred):
             image = np_load_frame(self.videos[video_name]['frame'][frame_name+i], self._resize_height, self._resize_width)
             if self.transform is not None:
                 batch.append(self.transform(image))
+                direction_label = direction_label_list[0,index+4]##
 
-        return np.concatenate(batch, axis=0)
+        return np.concatenate(batch, axis=0), direction_label##
         
         
     def __len__(self):

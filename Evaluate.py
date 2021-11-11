@@ -1,3 +1,4 @@
+#import torchvision
 import numpy as np
 import os
 import sys
@@ -20,7 +21,7 @@ from collections import OrderedDict
 import copy
 import time
 from model.utils import DataLoader
-from model.final_future_prediction_with_memory_spatial_sumonly_weight_ranking_top1 import *
+from model.final_future_prediction_with_memory_spatial_sumonly_weight_ranking_top1_direction import *
 from model.Reconstruction import *
 from sklearn.metrics import roc_auc_score
 from utils import *
@@ -46,10 +47,10 @@ parser.add_argument('--alpha', type=float, default=0.6, help='weight for the ano
 parser.add_argument('--th', type=float, default=0.01, help='threshold for test updating')
 parser.add_argument('--num_workers', type=int, default=2, help='number of workers for the train loader')
 parser.add_argument('--num_workers_test', type=int, default=1, help='number of workers for the test loader')
-parser.add_argument('--dataset_type', type=str, default='ped2', help='type of dataset: ped2, avenue, shanghai')
-parser.add_argument('--dataset_path', type=str, default='./dataset', help='directory of data')
-parser.add_argument('--model_dir', type=str, help='directory of model')
-parser.add_argument('--m_items_dir', type=str, help='directory of model')
+parser.add_argument('--dataset_type', type=str, default='atm1', help='type of dataset: ped2, avenue, shanghai')
+parser.add_argument('--dataset_path', type=str, default='/home/dongin/dataset/dat', help='directory of data')
+parser.add_argument('--model_dir', type=str, default='/home/dongin/MNAD/exp/atm1/pred/log/model.pth', help='directory of model')
+parser.add_argument('--m_items_dir', type=str, default='/home/dongin/MNAD/exp/atm1/pred/log/keys.pt', help='directory of model')
 
 args = parser.parse_args()
 
@@ -107,9 +108,11 @@ for video in sorted(videos_list):
     video_name = video.split('/')[-1]
     if args.method == 'pred':
         labels_list = np.append(labels_list, labels[0][4+label_length:videos[video_name]['length']+label_length])
+#        print(labels_list)
     else:
         labels_list = np.append(labels_list, labels[0][label_length:videos[video_name]['length']+label_length])
     label_length += videos[video_name]['length']
+#    print(label_length)
     psnr_list[video_name] = []
     feature_distance_list[video_name] = []
 
@@ -119,8 +122,9 @@ label_length += videos[videos_list[video_num].split('/')[-1]]['length']
 m_items_test = m_items.clone()
 
 model.eval()
-
-for k,(imgs) in enumerate(test_batch):
+correct = 0
+total = 0
+for k,(img) in enumerate(test_batch):
     
     if args.method == 'pred':
         if k == label_length-4*(video_num+1):
@@ -131,13 +135,18 @@ for k,(imgs) in enumerate(test_batch):
             video_num += 1
             label_length += videos[videos_list[video_num].split('/')[-1]]['length']
 
-    imgs = Variable(imgs).cuda()
-    
+    #imgs = Variable(imgs).cuda()
+    imgs, labels = img  ##
+    imgs, labels = Variable(imgs).cuda(), Variable(labels).cuda()  ##
+
     if args.method == 'pred':
-        outputs, feas, updated_feas, m_items_test, softmax_score_query, softmax_score_memory, _, _, _, compactness_loss = model.forward(imgs[:,0:3*4], m_items_test, False)
+        outputs, feas, updated_feas, m_items_test, softmax_score_query, softmax_score_memory, _, _, _, compactness_loss, direction_out = model.forward(imgs[:,0:3*4], m_items_test, False)
         mse_imgs = torch.mean(loss_func_mse((outputs[0]+1)/2, (imgs[0,3*4:]+1)/2)).item()
         mse_feas = compactness_loss.item()
 
+        _, predicted = torch.max(direction_out, 1)
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
         # Calculating the threshold for updating at the test time
         point_sc = point_score(outputs, imgs[:,3*4:])
     
@@ -171,3 +180,4 @@ accuracy = AUC(anomaly_score_total_list, np.expand_dims(1-labels_list, 0))
 
 print('The result of ', args.dataset_type)
 print('AUC: ', accuracy*100, '%')
+print('direction: ', (100*correct/total),'%')

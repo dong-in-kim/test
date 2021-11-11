@@ -31,7 +31,7 @@ parser = argparse.ArgumentParser(description="MNAD")
 parser.add_argument('--gpus', nargs='+', type=str, help='gpus')
 parser.add_argument('--batch_size', type=int, default=4, help='batch size for training')
 parser.add_argument('--test_batch_size', type=int, default=1, help='batch size for test')
-parser.add_argument('--epochs', type=int, default=60, help='number of epochs for training')
+parser.add_argument('--epochs', type=int, default=2, help='number of epochs for training')##
 parser.add_argument('--loss_compact', type=float, default=0.1, help='weight of the feature compactness loss')
 parser.add_argument('--loss_separate', type=float, default=0.1, help='weight of the feature separateness loss')
 parser.add_argument('--h', type=int, default=256, help='height of input images')
@@ -45,8 +45,8 @@ parser.add_argument('--mdim', type=int, default=512, help='channel dimension of 
 parser.add_argument('--msize', type=int, default=10, help='number of the memory items')
 parser.add_argument('--num_workers', type=int, default=2, help='number of workers for the train loader')
 parser.add_argument('--num_workers_test', type=int, default=1, help='number of workers for the test loader')
-parser.add_argument('--dataset_type', type=str, default='ped2', help='type of dataset: ped2, avenue, shanghai')
-parser.add_argument('--dataset_path', type=str, default='./dataset', help='directory of data')
+parser.add_argument('--dataset_type', type=str, default='atm1', help='type of dataset: ped2, avenue, shanghai')
+parser.add_argument('--dataset_path', type=str, default='/home/dongin/dataset/dat', help='directory of data')##
 parser.add_argument('--exp_dir', type=str, default='log', help='directory of log')
 
 args = parser.parse_args()
@@ -69,8 +69,7 @@ test_folder = args.dataset_path+"/"+args.dataset_type+"/testing/frames"
 # Loading dataset
 train_dataset = DataLoader(train_folder, transforms.Compose([
              transforms.ToTensor(),          
-             ]), resize_height=args.h, resize_width=args.w, time_step=args.t_length-1)
-
+             ]), resize_height=args.h, resize_width=args.w, time_step=args.t_length-1) # model/utils
 test_dataset = DataLoader(test_folder, transforms.Compose([
              transforms.ToTensor(),            
              ]), resize_height=args.h, resize_width=args.w, time_step=args.t_length-1)
@@ -92,7 +91,7 @@ if args.method == 'pred':
 else:
     from model.Reconstruction import *
     model = convAE(args.c, memory_size = args.msize, feature_dim = args.fdim, key_dim = args.mdim)
-params_encoder =  list(model.encoder.parameters()) 
+params_encoder = list(model.encoder.parameters())
 params_decoder = list(model.decoder.parameters())
 params = params_encoder + params_decoder
 optimizer = torch.optim.Adam(params, lr = args.lr)
@@ -117,35 +116,37 @@ m_items = F.normalize(torch.rand((args.msize, args.mdim), dtype=torch.float), di
 for epoch in range(args.epochs):
     labels_list = []
     model.train()
-    
+    criterion = nn.CrossEntropyLoss()##
     start = time.time()
-    for j,(imgs) in enumerate(train_batch):
-        
-        imgs = Variable(imgs).cuda()
+    for j,(img) in enumerate(train_batch):
+        imgs, labels = img##
+        imgs, labels = Variable(imgs).cuda(),Variable(labels).cuda()##
         
         if args.method == 'pred':
-            outputs, _, _, m_items, softmax_score_query, softmax_score_memory, separateness_loss, compactness_loss = model.forward(imgs[:,0:12], m_items, True)
+            outputs, _, _, m_items, softmax_score_query, softmax_score_memory, separateness_loss, compactness_loss, direction_out = model.forward(imgs[:,0:12], m_items, True)
         
         else:
             outputs, _, _, m_items, softmax_score_query, softmax_score_memory, separateness_loss, compactness_loss = model.forward(imgs, m_items, True)
         
         
         optimizer.zero_grad()
+        direction_loss = criterion(direction_out, labels)
         if args.method == 'pred':
             loss_pixel = torch.mean(loss_func_mse(outputs, imgs[:,12:]))
         else:
             loss_pixel = torch.mean(loss_func_mse(outputs, imgs))
             
-        loss = loss_pixel + args.loss_compact * compactness_loss + args.loss_separate * separateness_loss
+        loss = loss_pixel + args.loss_compact * compactness_loss + args.loss_separate * separateness_loss + direction_loss
         loss.backward(retain_graph=True)
         optimizer.step()
-        
+        print('Loss: Prediction {:.6f}/ Compactness {:.6f}/ Separateness {:.6f}/ direction {:.6f}'.format(loss_pixel.item(), compactness_loss.item(), separateness_loss.item(), direction_loss.item()))
+
     scheduler.step()
     
     print('----------------------------------------')
     print('Epoch:', epoch+1)
     if args.method == 'pred':
-        print('Loss: Prediction {:.6f}/ Compactness {:.6f}/ Separateness {:.6f}'.format(loss_pixel.item(), compactness_loss.item(), separateness_loss.item()))
+        print('Loss: Prediction {:.6f}/ Compactness {:.6f}/ Separateness {:.6f}/ direction {:.6f}'.format(loss_pixel.item(), compactness_loss.item(), separateness_loss.item(), direction_loss.item()))
     else:
         print('Loss: Reconstruction {:.6f}/ Compactness {:.6f}/ Separateness {:.6f}'.format(loss_pixel.item(), compactness_loss.item(), separateness_loss.item()))
     print('Memory_items:')
